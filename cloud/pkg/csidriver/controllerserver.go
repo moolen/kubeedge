@@ -17,27 +17,24 @@ limitations under the License.
 package csidriver
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
 
-	"github.com/kubeedge/beehive/pkg/core/model"
 	"github.com/kubeedge/kubeedge/common/constants"
 )
 
 type controllerServer struct {
 	caps             []*csi.ControllerServiceCapability
+	sendFn           KubeEdgeSendFn
 	nodeID           string
 	kubeEdgeEndpoint string
 }
+
+type KubeEdgeSendFn func(req interface{}, nodeID, volumeID, csiOp string, res interface{}, kubeEdgeEndpoint string) error
 
 // newControllerServer creates controller server
 func newControllerServer(nodeID, kubeEdgeEndpoint string) *controllerServer {
@@ -47,6 +44,7 @@ func newControllerServer(nodeID, kubeEdgeEndpoint string) *controllerServer {
 				csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 				csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 			}),
+		sendFn:           sendToKubeEdge,
 		nodeID:           nodeID,
 		kubeEdgeEndpoint: kubeEdgeEndpoint,
 	}
@@ -62,76 +60,21 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	if caps == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume Capabilities missing in request")
 	}
-
 	volumeID := uuid.New().String()
-
-	// Build message struct
-	resource, err := buildResource(cs.nodeID,
-		DefaultNamespace,
-		constants.CSIResourceTypeVolume,
-		volumeID)
-	if err != nil {
-		klog.Errorf("build message resource failed with error: %s", err)
-		return nil, err
-	}
-
-	m := jsonpb.Marshaler{}
-	js, err := m.MarshalToString(req)
-	if err != nil {
-		klog.Errorf("failed to marshal to string with error: %s", err)
-		return nil, err
-	}
-	klog.V(4).Infof("create volume marshal to string: %s", js)
-	msg := model.NewMessage("").
-		BuildRouter(DefaultReceiveModuleName, GroupResource, resource, constants.CSIOperationTypeCreateVolume).
-		FillBody(js)
-
-	// Marshal message
-	reqData, err := json.Marshal(msg)
-	if err != nil {
-		klog.Errorf("marshal request failed with error: %v", err)
-		return nil, err
-	}
+	klog.V(4).Infof("create volume request id=%s req=%#v", volumeID, req)
 
 	// Send message to KubeEdge
-	resdata, err := sendToKubeEdge(string(reqData), cs.kubeEdgeEndpoint)
+	res := &csi.CreateVolumeResponse{}
+	err := cs.sendFn(req, cs.nodeID, volumeID, constants.CSIOperationTypeCreateVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
 	}
 
-	// Unmarshal message
-	result, err := extractMessage(resdata)
-	if err != nil {
-		klog.Errorf("unmarshal response failed with error: %v", err)
-		return nil, err
-	}
-
-	klog.V(4).Infof("create volume result: %v", result)
-	data := result.GetContent().(string)
-
-	if result.GetOperation() == model.ResponseErrorOperation {
-		klog.Errorf("create volume with error: %s", data)
-		return nil, errors.New(data)
-	}
-
-	decodeBytes, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		klog.Errorf("create volume decode with error: %v", err)
-		return nil, err
-	}
-
-	response := &csi.CreateVolumeResponse{}
-	err = json.Unmarshal(decodeBytes, response)
-	if err != nil {
-		klog.Errorf("create volume unmarshal with error: %v", err)
-		return nil, err
-	}
-	klog.V(4).Infof("create volume response: %v", response)
-
+	klog.V(4).Infof("create volume response: %#v", res)
 	createVolumeResponse := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
-			VolumeId:      response.Volume.VolumeId,
+			VolumeId:      res.Volume.VolumeId,
 			CapacityBytes: req.GetCapacityRange().GetRequiredBytes(),
 			VolumeContext: req.GetParameters(),
 		},
@@ -139,238 +82,67 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	if req.GetVolumeContentSource() != nil {
 		createVolumeResponse.Volume.ContentSource = req.GetVolumeContentSource()
 	}
+	klog.V(4).Infof("returning volume response: %#v", createVolumeResponse)
 	return createVolumeResponse, nil
 }
 
 // DeleteVolume issues delete volume func
 func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	// Check arguments
-	if len(req.GetVolumeId()) == 0 {
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
-
-	// Build message struct
-	resource, err := buildResource(cs.nodeID,
-		DefaultNamespace,
-		constants.CSIResourceTypeVolume,
-		req.GetVolumeId())
-	if err != nil {
-		klog.Errorf("build message resource failed with error: %s", err)
-		return nil, err
-	}
-
-	m := jsonpb.Marshaler{}
-	js, err := m.MarshalToString(req)
-	if err != nil {
-		klog.Errorf("failed to marshal to string with error: %s", err)
-		return nil, err
-	}
-	klog.V(4).Infof("delete volume marshal to string: %s", js)
-	msg := model.NewMessage("").
-		BuildRouter(DefaultReceiveModuleName, GroupResource, resource, constants.CSIOperationTypeDeleteVolume).
-		FillBody(js)
-
-	// Marshal message
-	reqData, err := json.Marshal(msg)
-	if err != nil {
-		klog.Errorf("marshal request failed with error: %v", err)
-		return nil, err
-	}
-
-	// Send message to KubeEdge
-	resdata, err := sendToKubeEdge(string(reqData), cs.kubeEdgeEndpoint)
+	klog.V(4).Infof("delete volume: %#v", req)
+	res := &csi.DeleteVolumeResponse{}
+	err := cs.sendFn(req, cs.nodeID, volumeID, constants.CSIOperationTypeDeleteVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
 	}
-
-	// Unmarshal message
-	result, err := extractMessage(resdata)
-	if err != nil {
-		klog.Errorf("unmarshal response failed with error: %v", err)
-		return nil, err
-	}
-
-	klog.V(4).Infof("delete volume result: %v", result)
-	data := result.GetContent().(string)
-
-	if msg.GetOperation() == model.ResponseErrorOperation {
-		klog.Errorf("delete volume with error: %s", data)
-		return nil, errors.New(data)
-	}
-
-	decodeBytes, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		klog.Errorf("delete volume decode with error: %v", err)
-		return nil, err
-	}
-
-	deleteVolumeResponse := &csi.DeleteVolumeResponse{}
-	err = json.Unmarshal(decodeBytes, deleteVolumeResponse)
-	if err != nil {
-		klog.Errorf("delete volume unmarshal with error: %v", err)
-		return nil, err
-	}
-	klog.V(4).Infof("delete volume response: %v", deleteVolumeResponse)
-	return deleteVolumeResponse, nil
+	klog.V(4).Infof("delete volume response: %v", res)
+	return res, nil
 }
 
 // ControllerPublishVolume issues controller publish volume func
 func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (*csi.ControllerPublishVolumeResponse, error) {
-	instanceID := req.GetNodeId()
+	nodeID := req.GetNodeId()
 	volumeID := req.GetVolumeId()
-
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "ControllerPublishVolume Volume ID must be provided")
 	}
-
-	if len(instanceID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "ControllerPublishVolume Instance ID must be provided")
+	if len(nodeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "ControllerPublishVolume Node ID must be provided")
 	}
-
-	// Build message struct
-	resource, err := buildResource(cs.nodeID,
-		DefaultNamespace,
-		constants.CSIResourceTypeVolume,
-		volumeID)
-	if err != nil {
-		klog.Errorf("build message resource failed with error: %s", err)
-		return nil, err
-	}
-
-	m := jsonpb.Marshaler{}
-	js, err := m.MarshalToString(req)
-	if err != nil {
-		klog.Errorf("failed to marshal to string with error: %s", err)
-		return nil, err
-	}
-	klog.V(4).Infof("controller publish volume marshal to string: %s", js)
-	msg := model.NewMessage("").
-		BuildRouter(DefaultReceiveModuleName, GroupResource, resource, constants.CSIOperationTypeControllerPublishVolume).
-		FillBody(js)
-
-	// Marshal message
-	reqData, err := json.Marshal(msg)
-	if err != nil {
-		klog.Errorf("marshal request failed with error: %v", err)
-		return nil, err
-	}
-
-	// Send message to KubeEdge
-	resdata, err := sendToKubeEdge(string(reqData), cs.kubeEdgeEndpoint)
+	klog.V(4).Infof("publish volume: %#v", req)
+	res := &csi.ControllerPublishVolumeResponse{}
+	err := cs.sendFn(req, nodeID, volumeID, constants.CSIOperationTypeControllerPublishVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
 	}
-
-	// Unmarshal message
-	result, err := extractMessage(resdata)
-	if err != nil {
-		klog.Errorf("unmarshal response failed with error: %v", err)
-		return nil, err
-	}
-
-	klog.V(4).Infof("controller publish volume result: %v", result)
-	data := result.GetContent().(string)
-
-	if msg.GetOperation() == model.ResponseErrorOperation {
-		klog.Errorf("controller publish volume with error: %s", data)
-		return nil, errors.New(data)
-	}
-
-	decodeBytes, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		klog.Errorf("controller publish volume decode with error: %v", err)
-		return nil, err
-	}
-
-	controllerPublishVolumeResponse := &csi.ControllerPublishVolumeResponse{}
-	err = json.Unmarshal(decodeBytes, controllerPublishVolumeResponse)
-	if err != nil {
-		klog.Errorf("controller publish volume unmarshal with error: %v", err)
-		return nil, err
-	}
-	klog.V(4).Infof("controller publish volume response: %v", controllerPublishVolumeResponse)
-	return controllerPublishVolumeResponse, nil
+	klog.V(4).Infof("controller publish volume response: %v", res)
+	return res, nil
 }
 
 // ControllerUnpublishVolume issues controller unpublish volume func
 func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	instanceID := req.GetNodeId()
+	nodeID := req.GetNodeId()
 	volumeID := req.GetVolumeId()
-
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "ControllerUnpublishVolume Volume ID must be provided")
 	}
-
-	if len(instanceID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "ControllerUnpublishVolume Instance ID must be provided")
+	if len(nodeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "ControllerUnpublishVolume Node ID must be provided")
 	}
-
-	// Build message struct
-	resource, err := buildResource(cs.nodeID,
-		DefaultNamespace,
-		constants.CSIResourceTypeVolume,
-		volumeID)
-	if err != nil {
-		klog.Errorf("Build message resource failed with error: %s", err)
-		return nil, err
-	}
-
-	m := jsonpb.Marshaler{}
-	js, err := m.MarshalToString(req)
-	if err != nil {
-		klog.Errorf("failed to marshal to string with error: %s", err)
-		return nil, err
-	}
-	klog.V(4).Infof("controller Unpublish Volume marshal to string: %s", js)
-	msg := model.NewMessage("").
-		BuildRouter(DefaultReceiveModuleName, GroupResource, resource, constants.CSIOperationTypeControllerUnpublishVolume).
-		FillBody(js)
-
-	// Marshal message
-	reqData, err := json.Marshal(msg)
-	if err != nil {
-		klog.Errorf("marshal request failed with error: %v", err)
-		return nil, err
-	}
-
-	// Send message to KubeEdge
-	resdata, err := sendToKubeEdge(string(reqData), cs.kubeEdgeEndpoint)
+	klog.V(4).Infof("unpublish volume: %#v", req)
+	res := &csi.ControllerUnpublishVolumeResponse{}
+	err := cs.sendFn(req, nodeID, volumeID, constants.CSIOperationTypeControllerUnpublishVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
 	}
-
-	// Unmarshal message
-	result, err := extractMessage(resdata)
-	if err != nil {
-		klog.Errorf("unmarshal response failed with error: %v", err)
-		return nil, err
-	}
-
-	klog.V(4).Infof("controller Unpublish Volume result: %v", result)
-	data := result.GetContent().(string)
-
-	if msg.GetOperation() == model.ResponseErrorOperation {
-		klog.Errorf("controller Unpublish Volume with error: %s", data)
-		return nil, errors.New(data)
-	}
-
-	decodeBytes, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		klog.Errorf("controller Unpublish Volume decode with error: %v", err)
-		return nil, err
-	}
-
-	controllerUnpublishVolumeResponse := &csi.ControllerUnpublishVolumeResponse{}
-	err = json.Unmarshal(decodeBytes, controllerUnpublishVolumeResponse)
-	if err != nil {
-		klog.Errorf("controller Unpublish Volume unmarshal with error: %v", err)
-		return nil, err
-	}
-	klog.V(4).Infof("controller Unpublish Volume response: %v", controllerUnpublishVolumeResponse)
-	return controllerUnpublishVolumeResponse, nil
+	klog.V(4).Infof("controller Unpublish Volume response: %v", res)
+	return res, nil
 }
 
 func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
@@ -379,12 +151,12 @@ func (cs *controllerServer) ValidateVolumeCapabilities(ctx context.Context, req 
 		return nil, status.Error(codes.InvalidArgument, "Volume ID cannot be empty")
 	}
 	if len(req.VolumeCapabilities) == 0 {
-		return nil, status.Error(codes.InvalidArgument, req.VolumeId)
+		return nil, status.Error(codes.InvalidArgument, "Volume Capabilities can not be empty")
 	}
 
 	for _, cap := range req.GetVolumeCapabilities() {
 		if cap.GetMount() == nil && cap.GetBlock() == nil {
-			return nil, status.Error(codes.InvalidArgument, "cannot have both mount and block access type be undefined")
+			return nil, status.Error(codes.InvalidArgument, "Cannot have both mount and block access type be undefined")
 		}
 	}
 
