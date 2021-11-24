@@ -87,7 +87,7 @@ func (q *ChannelMessageQueue) addListMessageToQueue(nodeID string, msg *beehiveM
 }
 
 func (q *ChannelMessageQueue) addMessageToQueue(nodeID string, msg *beehiveModel.Message) {
-	if msg.GetResourceVersion() == "" && !isDeleteMessage(msg) {
+	if msg.GetResourceVersion() == "" && !isDeleteMessage(msg) && !isVolumeMessage(msg) {
 		return
 	}
 
@@ -102,7 +102,8 @@ func (q *ChannelMessageQueue) addMessageToQueue(nodeID string, msg *beehiveModel
 
 	//if the operation is delete, force to sync the resource message
 	//if the operation is response, force to sync the resource message, since the edgecore requests it
-	if !isDeleteMessage(msg) && msg.GetOperation() != beehiveModel.ResponseOperation {
+	//if the operation is volume-related, force to sync
+	if !isDeleteMessage(msg) && !isVolumeMessage(msg) && msg.GetOperation() != beehiveModel.ResponseOperation {
 		item, exist, _ := nodeStore.GetByKey(messageKey)
 		// If the message doesn't exist in the store, then compare it with
 		// the version stored in the database
@@ -185,6 +186,14 @@ func isListResource(msg *beehiveModel.Message) bool {
 	}
 
 	return false
+}
+
+func isVolumeMessage(msg *beehiveModel.Message) bool {
+	op := msg.GetOperation()
+	return op == commonconst.CSIOperationTypeCreateVolume ||
+		op == commonconst.CSIOperationTypeDeleteVolume ||
+		op == commonconst.CSIOperationTypeControllerPublishVolume ||
+		op == commonconst.CSIOperationTypeControllerUnpublishVolume
 }
 
 func isDeleteMessage(msg *beehiveModel.Message) bool {
