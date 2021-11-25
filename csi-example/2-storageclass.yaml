@@ -1,0 +1,10 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: csi-hostpath-sc
+# the CSI driver name MUST be this.
+# there is a PR making this configurable
+# see: https://github.com/kubeedge/kubeedge/pull/3326
+provisioner: csi-hostpath
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

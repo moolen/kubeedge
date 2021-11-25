@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  creationTimestamp: null
+  name: csi-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: csi-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  # !!! NEVER EVER USE THIS ELSEWHERE THAN IN A POC ENVIRONMENT
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: csi-controller
+  namespace: default
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: csi-hostpath-controller
+spec:
+  serviceName: "csi-hostpath-controller"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-hostpath-controller
+  template:
+    metadata:
+      labels:
+        app: csi-hostpath-controller
+    spec:
+      serviceAccountName: csi-controller
+      nodeSelector:
+        kubernetes.io/hostname: ip-172-31-8-237
+      containers:
+        - name: csi-provisioner
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v3.0.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -v=5
+            - --csi-address=/csi/csi.sock
+            - --timeout=120s
+          volumeMounts:
+            - mountPath: /csi
+              name: csi-socket-dir
+        - name: csi-attacher
+          # 2.2.2+ will not work, it relies on Kind=CSINode which
+          # is not implemented
+          #image: k8s.gcr.io/sig-storage/csi-attacher:v2.2.1
+          image: quay.io/k8scsi/csi-attacher:v2.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --v=5
+            - --csi-address=/csi/csi.sock
+            - --timeout=120s
+          volumeMounts:
+          - mountPath: /csi
+            name: csi-socket-dir
+        - name: csi-driver
+          image: docker.io/moolen/kubeedge-csidriver:csi-fix
+          imagePullPolicy: Always
+          args:
+            - "--v=10"
+            - "--drivername=$(CSI_DRIVERNAME)"
+            - "--endpoint=$(CSI_ENDPOINT)"
+            - "--kubeedge-endpoint=$(KUBEEDGE_ENDPOINT)"
+            - "--nodeid=$(KUBE_NODE_NAME)"
+          env:
+            # the CSI driver name MUST be this.
+            # there is a PR making this configurable
+            # see: https://github.com/kubeedge/kubeedge/pull/3326
+            - name: CSI_DRIVERNAME
+              value: csi-hostpath
+            - name: CSI_ENDPOINT
+              value: unix:///csi/csi.sock
+            - name: KUBEEDGE_ENDPOINT
+              value: unix:///kubeedge/kubeedge.sock
+            - name: KUBE_NODE_NAME
+              # Replace this value with the name of edge node
+              # which is in charge of Create/Delete/Publish/Unpublish Volume.
+              # (!!!) As of now csicontroller can handle
+              # only a single edge node!
+              value: edge-1
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /csi
+              name: csi-socket-dir
+            - mountPath: /kubeedge
+              name: kubeedge-socket-dir
+      volumes:
+        - hostPath:
+            path: /var/lib/kubelet/plugins/csi-hostpath
+            type: DirectoryOrCreate
+          name: csi-socket-dir
+        - hostPath:
+            path: /var/lib/kubeedge
+            type: DirectoryOrCreate
+          name: kubeedge-socket-dir

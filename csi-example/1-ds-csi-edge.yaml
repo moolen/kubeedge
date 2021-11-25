@@ -1,0 +1,93 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: csi-hostpath-edge
+spec:
+  selector:
+    matchLabels:
+      node-role.kubernetes.io/edge: ""
+  template:
+    metadata:
+      labels:
+        node-role.kubernetes.io/edge: ""
+    spec:
+      hostNetwork: true
+      containers:
+        - name: node-driver-registrar
+          image: k8s.gcr.io/sig-storage/csi-node-driver-registrar:v2.4.0
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "rm -rf /registration/csi-hostpath /registration/csi-hostpath-reg.sock"]
+          args:
+            - --v=5
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path=/var/lib/edged/plugins/csi-hostpath/csi.sock
+          securityContext:
+            privileged: true
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        - name:  csi-hostpath-driver
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["SYS_ADMIN"]
+            allowPrivilegeEscalation: true
+          image: k8s.gcr.io/sig-storage/hostpathplugin:v1.7.3
+          args:
+            - "--drivername=csi-hostpath"
+            - "--v=5"
+            - "--nodeid=$(KUBE_NODE_NAME)"
+            - "--statedir=/csi-state-dir"
+            - "--endpoint=unix:///csi/csi.sock"
+          env:
+            - name: KUBE_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: plugins-dir
+              mountPath: /var/lib/edged/plugins
+              mountPropagation: Bidirectional
+            - name: mountpoint-dir
+              mountPath: /var/lib/edged/pods
+              mountPropagation: "Bidirectional"
+            # the volume state is stored on disk
+            # so we don't run into issues when restarting the pod
+            # or rebooting the node
+            - name: csi-state-dir
+              mountPath: /csi-state-dir
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/edged/plugins/csi-hostpath
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/edged/plugins_registry
+            type: DirectoryOrCreate
+        - name: plugins-dir
+          hostPath:
+            path: /var/lib/edged/plugins
+            type: DirectoryOrCreate
+        - name: mountpoint-dir
+          hostPath:
+            path: /var/lib/edged/pods
+            type: DirectoryOrCreate
+        - name: csi-state-dir
+          hostPath:
+            path: /var/lib/csi-hostpath-state
+            type: DirectoryOrCreate
