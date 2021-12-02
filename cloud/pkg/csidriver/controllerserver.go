@@ -80,6 +80,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "Can not pick edge node based on accessibility requirements")
 	}
+	klog.V(4).Infof("picked edge node: %s", edgeNode)
 
 	// Send message to KubeEdge
 	res := &csi.CreateVolumeResponse{}
@@ -90,7 +91,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 
 	klog.V(4).Info("updating state store")
-	err = cs.store.Update(volName, edgeNode)
+	err = cs.store.Update(res.Volume.VolumeId, edgeNode)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "unable to update state")
 	}
@@ -118,14 +119,12 @@ func pickEdgeNode(requirement *csi.TopologyRequirement) (string, error) {
 		return "", fmt.Errorf("missing topology requirements")
 	}
 	for _, topology := range requirement.GetPreferred() {
-		klog.Info("topology preferred segments: %#v", topology.Segments)
 		zone, exists := topology.GetSegments()[hostnameTopologyKey]
 		if exists {
 			return zone, nil
 		}
 	}
 	for _, topology := range requirement.GetRequisite() {
-		klog.Info("topology requisite segments: %#v", topology.Segments)
 		zone, exists := topology.GetSegments()[hostnameTopologyKey]
 		if exists {
 			return zone, nil
@@ -167,7 +166,7 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 	}
 	edgeName, err := cs.store.Get(volumeID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "unable to update state")
+		return nil, status.Error(codes.Internal, "unable to get edge name")
 	}
 	klog.V(4).Infof("publish volume %s on %s", volumeID, edgeName)
 	res := &csi.ControllerPublishVolumeResponse{}
@@ -188,7 +187,7 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 	}
 	edgeName, err := cs.store.Get(volumeID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "unable to update state")
+		return nil, status.Error(codes.Internal, "unable to get edge name")
 	}
 	klog.V(4).Infof("unpublish volume %s on %s", volumeID, edgeName)
 	res := &csi.ControllerUnpublishVolumeResponse{}

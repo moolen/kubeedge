@@ -33,7 +33,9 @@ func New(basePath string) (*Store, error) {
 	s := &Store{
 		basePath: basePath,
 		mux:      &sync.RWMutex{},
-		state:    &State{},
+		state: &State{
+			Volumes: map[string]string{},
+		},
 	}
 
 	if err := os.MkdirAll(basePath, 0750); err != nil {
