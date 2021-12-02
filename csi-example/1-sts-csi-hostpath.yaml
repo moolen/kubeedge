@@ -67,14 +67,14 @@ spec:
           - mountPath: /csi
             name: csi-socket-dir
         - name: csi-driver
-          image: docker.io/moolen/kubeedge-csidriver:csi-fix
+          image: docker.io/moolen/kubeedge-csidriver:csi-fix-topo
           imagePullPolicy: Always
           args:
             - "--v=10"
             - "--drivername=$(CSI_DRIVERNAME)"
             - "--endpoint=$(CSI_ENDPOINT)"
             - "--kubeedge-endpoint=$(KUBEEDGE_ENDPOINT)"
-            - "--nodeid=$(KUBE_NODE_NAME)"
+            - "--state-path=$(STATE_PATH)"
           env:
             # the CSI driver name MUST be this.
             # there is a PR making this configurable
@@ -85,12 +85,8 @@ spec:
               value: unix:///csi/csi.sock
             - name: KUBEEDGE_ENDPOINT
               value: unix:///kubeedge/kubeedge.sock
-            - name: KUBE_NODE_NAME
-              # Replace this value with the name of edge node
-              # which is in charge of Create/Delete/Publish/Unpublish Volume.
-              # (!!!) As of now csicontroller can handle
-              # only a single edge node!
-              value: edge-1
+            - name: STATE_PATH
+              value: /kubeedge/csidriver
           securityContext:
             privileged: true
           volumeMounts:

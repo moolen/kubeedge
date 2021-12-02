@@ -20,46 +20,32 @@ import (
 	"fmt"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
 
+	"github.com/kubeedge/kubeedge/cloud/pkg/csidriver/state"
 	"github.com/kubeedge/kubeedge/common/constants"
 )
 
 type controllerServer struct {
 	caps             []*csi.ControllerServiceCapability
 	sendFn           KubeEdgeSendFn
-	nodeID           string
 	kubeEdgeEndpoint string
-
-	// TODO:
-	// (1) check if createVolume requests are inflight already
-	//     the CreateVolume API call MUST be idempotent
-	// see aws/inflight: https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/pkg/driver/internal/inflight.go
-
-	// (2?) implement topology constraints to support more then one edge nodes
-	//     implementation docs: https://kubernetes-csi.github.io/docs/topology.html#implementing-topology-in-your-csi-driver
-	//     * GetNodeInfo() https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/5d782870e3ee2e56e36202362d7b65d54ce8f866/pkg/driver/node.go#L507
-	//     * NodeGetCapabilities() https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/5d782870e3ee2e56e36202362d7b65d54ce8f866/pkg/driver/node.go#L491
-	//     discuss a WellKnownTopologyConstraint like here: https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/25edc9779a6bf8608902908473d3868e05b6efb8/pkg/driver/driver.go#L49
-	//     also see: https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/pkg/driver/controller.go#L658-L684
-	// proposal: make topoConstraint configurable so that the user can decide how to route
-	//           traffic to the edge nodes.
-	// API: CreateVolumeRequest -> get accessibility constraints -> string (node-id)
-	// WaitForFirstConsumer
+	inFlight         *inFlight
+	store            *state.Store
 }
 
 type KubeEdgeSendFn func(req interface{}, nodeID, volumeID, csiOp string, res interface{}, kubeEdgeEndpoint string) error
 
 const (
-	volumeContextNodeIDKey = "topology." + DriverName + "/node-id"
+	volumeContextNodeIDKey = "topology.csidriver.kubeedge/node-id"
+	hostnameTopologyKey    = "kubernetes.io/hostname"
 )
 
 // newControllerServer creates controller server
-func newControllerServer(nodeID, kubeEdgeEndpoint string) *controllerServer {
+func newControllerServer(kubeEdgeEndpoint string, store *state.Store) *controllerServer {
 	return &controllerServer{
 		caps: getControllerServiceCapabilities(
 			[]csi.ControllerServiceCapability_RPC_Type{
@@ -67,39 +53,46 @@ func newControllerServer(nodeID, kubeEdgeEndpoint string) *controllerServer {
 				csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
 			}),
 		sendFn:           sendToKubeEdge,
-		nodeID:           nodeID,
 		kubeEdgeEndpoint: kubeEdgeEndpoint,
+		inFlight:         newInFlight(),
+		store:            store,
 	}
 }
 
 // CreateVolume issues create volume func
 func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
-	// Check arguments
-	if len(req.GetName()) == 0 {
+	volName := req.GetName()
+	if len(volName) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Name missing in request")
 	}
 	caps := req.GetVolumeCapabilities()
 	if caps == nil {
 		return nil, status.Error(codes.InvalidArgument, "Volume Capabilities missing in request")
 	}
-	volumeID := uuid.New().String()
-	klog.V(4).Infof("create volume request id=%s req=%#v", volumeID, req)
+	klog.V(4).Infof("create volume request id=%s req=%#v", volName, req)
 
-	// do we need to store this state for subsequent requests?
-	// e.g. publishNode?
+	if ok := cs.inFlight.Insert(volName); !ok {
+		return nil, status.Errorf(codes.Aborted, "request already inflight for %s", volName)
+	}
+	defer cs.inFlight.Delete(volName)
+
 	edgeNode, err := pickEdgeNode(req.GetAccessibilityRequirements())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "Can not pick edge node based on accessibility requirements")
 	}
 
-	klog.Infof("XXXX going with edge node: %s", edgeNode)
-
 	// Send message to KubeEdge
 	res := &csi.CreateVolumeResponse{}
-	err = cs.sendFn(req, edgeNode, volumeID, constants.CSIOperationTypeCreateVolume, res, cs.kubeEdgeEndpoint)
+	err = cs.sendFn(req, edgeNode, volName, constants.CSIOperationTypeCreateVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
+	}
+
+	klog.V(4).Info("updating state store")
+	err = cs.store.Update(volName, edgeNode)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "unable to update state")
 	}
 
 	klog.V(4).Infof("create volume response: %#v", res)
@@ -122,18 +115,18 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 func pickEdgeNode(requirement *csi.TopologyRequirement) (string, error) {
 	klog.Info("topology requirements: %#v", requirement)
 	if requirement == nil {
-		return "", ErrNotImpl
+		return "", fmt.Errorf("missing topology requirements")
 	}
 	for _, topology := range requirement.GetPreferred() {
 		klog.Info("topology preferred segments: %#v", topology.Segments)
-		zone, exists := topology.GetSegments()[WellKnownTopologyKey]
+		zone, exists := topology.GetSegments()[hostnameTopologyKey]
 		if exists {
 			return zone, nil
 		}
 	}
 	for _, topology := range requirement.GetRequisite() {
 		klog.Info("topology requisite segments: %#v", topology.Segments)
-		zone, exists := topology.GetSegments()[WellKnownTopologyKey]
+		zone, exists := topology.GetSegments()[hostnameTopologyKey]
 		if exists {
 			return zone, nil
 		}
@@ -147,12 +140,20 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "Volume ID missing in request")
 	}
-	klog.V(4).Infof("delete volume: %#v", req)
+	edgeName, err := cs.store.Get(volumeID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "unable to update state")
+	}
+	klog.V(4).Infof("delete volume %s from %s", volumeID, edgeName)
 	res := &csi.DeleteVolumeResponse{}
-	err := cs.sendFn(req, cs.nodeID, volumeID, constants.CSIOperationTypeDeleteVolume, res, cs.kubeEdgeEndpoint)
+	err = cs.sendFn(req, edgeName, volumeID, constants.CSIOperationTypeDeleteVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
+	}
+	err = cs.store.Delete(volumeID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "unable to update state")
 	}
 	klog.V(4).Infof("delete volume response: %v", res)
 	return res, nil
@@ -164,13 +165,13 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "ControllerPublishVolume Volume ID must be provided")
 	}
-	edgeNode, ok := req.VolumeContext[volumeContextNodeIDKey]
-	if !ok {
-		return nil, status.Error(codes.InvalidArgument, "ControllerPublishVolume could not get edge node id from volume context")
+	edgeName, err := cs.store.Get(volumeID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "unable to update state")
 	}
-	klog.V(4).Infof("publish volume: %#v", req)
+	klog.V(4).Infof("publish volume %s on %s", volumeID, edgeName)
 	res := &csi.ControllerPublishVolumeResponse{}
-	err := cs.sendFn(req, edgeNode, volumeID, constants.CSIOperationTypeControllerPublishVolume, res, cs.kubeEdgeEndpoint)
+	err = cs.sendFn(req, edgeName, volumeID, constants.CSIOperationTypeControllerPublishVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
@@ -181,17 +182,17 @@ func (cs *controllerServer) ControllerPublishVolume(ctx context.Context, req *cs
 
 // ControllerUnpublishVolume issues controller unpublish volume func
 func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	nodeID := req.GetNodeId()
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "ControllerUnpublishVolume Volume ID must be provided")
 	}
-	if len(nodeID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "ControllerUnpublishVolume Node ID must be provided")
+	edgeName, err := cs.store.Get(volumeID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "unable to update state")
 	}
-	klog.V(4).Infof("unpublish volume: %#v", req)
+	klog.V(4).Infof("unpublish volume %s on %s", volumeID, edgeName)
 	res := &csi.ControllerUnpublishVolumeResponse{}
-	err := cs.sendFn(req, nodeID, volumeID, constants.CSIOperationTypeControllerUnpublishVolume, res, cs.kubeEdgeEndpoint)
+	err = cs.sendFn(req, edgeName, volumeID, constants.CSIOperationTypeControllerUnpublishVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err
