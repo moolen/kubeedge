@@ -29,6 +29,7 @@ type CSIDriver struct {
 
 	ids *identityServer
 	cs  *controllerServer
+	ns  *nodeServer
 }
 
 func NewCSIDriver(opts *options.CSIDriverOptions) (*CSIDriver, error) {
@@ -58,6 +59,8 @@ func (cd *CSIDriver) Run() {
 	// Create GRPC servers
 	cd.ids = newIdentityServer(cd.DriverName, cd.Version)
 	cd.cs = newControllerServer(cd.NodeID, cd.KubeEdgeEndpoint)
+	// consider removing nodeServer
+	cd.ns = newNodeServer(cd.NodeID)
 
 	s := newNonBlockingGRPCServer()
 	s.Start(cd.Endpoint, cd.ids, cd.cs, nil)

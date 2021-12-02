@@ -7,4 +7,4 @@ metadata:
 # see: https://github.com/kubeedge/kubeedge/pull/3326
 provisioner: csi-hostpath
 reclaimPolicy: Retain
-volumeBindingMode: Immediate
+volumeBindingMode: WaitForFirstConsumer

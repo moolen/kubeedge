@@ -38,12 +38,17 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: ip-172-31-8-237
       containers:
+        # external-provisioner
+        # https://github.com/kubernetes-csi/external-provisioner
+        # must enable --strict-topology to support delayed binding
         - name: csi-provisioner
           image: k8s.gcr.io/sig-storage/csi-provisioner:v3.0.0
           imagePullPolicy: IfNotPresent
           args:
             - -v=5
             - --csi-address=/csi/csi.sock
+            - --feature-gates=Topology=true
+            - --strict-topology
             - --timeout=120s
           volumeMounts:
             - mountPath: /csi
