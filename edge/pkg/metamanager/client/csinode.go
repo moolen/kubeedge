@@ -55,7 +55,7 @@ func (c *csinodes) Create(cm *storagev1.CSINode) (*storagev1.CSINode, error) {
 		return nil, fmt.Errorf("parse message to csinode failed, err: %v", err)
 	}
 	klog.Infof("csinode error content: %s", string(content))
-	if resMsg.GetOperation() == model.ResponseErrorOperation && strings.Contains(string(content), "NotFound") {
+	if resMsg.GetOperation() == model.ResponseErrorOperation && strings.Contains(string(content), "not found") {
 		return nil, errors.NewNotFound(storagev1.Resource("csinodes"), cm.Name)
 	}
 	var node *storagev1.CSINode
