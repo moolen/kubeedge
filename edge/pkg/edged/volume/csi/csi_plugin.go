@@ -265,7 +265,24 @@ func initializeCSINode(host volume.VolumeHost) error {
 		return nil
 	}
 
-	csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{}, meta.CreateOptions{})
+	csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{
+		ObjectMeta: meta.ObjectMeta{
+			Name: host.GetHostName(),
+		},
+		Spec: storagev1.CSINodeSpec{
+			Drivers: []storagev1.CSINodeDriver{
+				{
+					Name:   "csi-example",
+					NodeID: host.GetHostName(),
+					TopologyKeys: []string{
+						"kubernetes.io/hostname",
+						"topology.kubernetes.io/zone",
+						"topology.kubernetes.io/region",
+					},
+				},
+			},
+		},
+	}, meta.CreateOptions{})
 	klog.Errorf("XYZ csi_plugin created csinode: %v / %v", csinode, err)
 
 	kvh.SetKubeletError(errors.New("CSINodeInfo is not yet initialized"))
