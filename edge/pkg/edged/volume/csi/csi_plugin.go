@@ -272,7 +272,7 @@ func initializeCSINode(host volume.VolumeHost) error {
 		klog.Info("XYZ csi_plugin creating csinode")
 		csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{
 			ObjectMeta: meta.ObjectMeta{
-				Name: host.GetHostName() + "-test",
+				Name: "something-test",
 			},
 			Spec: storagev1.CSINodeSpec{
 				Drivers: []storagev1.CSINodeDriver{

@@ -261,6 +261,7 @@ func constructConnectMessage(info *model.HubInfo, isConnected bool) *beehiveMode
 
 func (mh *MessageHandle) PubToController(info *model.HubInfo, msg *beehiveModel.Message) error {
 	msg.SetResourceOperation(fmt.Sprintf("node/%s/%s", info.NodeID, msg.GetResource()), msg.GetOperation())
+	klog.Infof("PubToController: isFromEdge=%t id=%s", model.IsFromEdge(msg), msg.GetID())
 	if model.IsFromEdge(msg) {
 		err := mh.MessageQueue.Publish(msg)
 		if err != nil {
