@@ -3,8 +3,10 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubeedge/beehive/pkg/core/model"
@@ -43,6 +45,7 @@ func (c *csinodes) Create(cm *storagev1.CSINode) (*storagev1.CSINode, error) {
 	resource := fmt.Sprintf("%s/%s/%s", c.namespace, model.ResourceTypeCSINode, cm.Name)
 	nodeMsg := message.BuildMsg(modules.MetaGroup, "", modules.EdgedModuleName, resource, model.InsertOperation, cm)
 	resMsg, err := c.send.SendSync(nodeMsg)
+	klog.Infof("csinode error from remote: msg=%#v err=%#v", resMsg, err)
 	if err != nil {
 		return nil, fmt.Errorf("create csinode failed, err: %v", err)
 	}
@@ -50,6 +53,10 @@ func (c *csinodes) Create(cm *storagev1.CSINode) (*storagev1.CSINode, error) {
 	content, err := resMsg.GetContentData()
 	if err != nil {
 		return nil, fmt.Errorf("parse message to csinode failed, err: %v", err)
+	}
+	klog.Infof("csinode error content: %s", string(content))
+	if resMsg.GetOperation() == model.ResponseErrorOperation && strings.Contains(string(content), "NotFound") {
+		return nil, errors.NewNotFound(storagev1.Resource("csinodes"), cm.Name)
 	}
 	var node *storagev1.CSINode
 	err = json.Unmarshal(content, &node)
