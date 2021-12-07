@@ -389,6 +389,7 @@ func (nim *nodeInfoManager) InitializeCSINodeWithAnnotation() error {
 	var updateErrs []error
 	err := wait.ExponentialBackoff(updateBackoff, func() (bool, error) {
 		if err := nim.tryInitializeCSINodeWithAnnotation(csiKubeClient); err != nil {
+			klog.Infof("error initializing csinode: %w", err)
 			updateErrs = append(updateErrs, err)
 			return false, nil
 		}
