@@ -118,7 +118,6 @@ func (m *metaManager) processInsert(message model.Message) {
 		feedbackError(err, "Error to get insert message content data", message)
 		return
 	}
-	klog.Infof("XYZ processInsert: %s", content)
 
 	imitator.DefaultV2Client.Inject(message)
 

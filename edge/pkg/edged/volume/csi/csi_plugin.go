@@ -245,7 +245,7 @@ func (p *csiPlugin) Init(host volume.VolumeHost) error {
 	// is both installed and initialized
 	klog.Infof("initializing CSINode")
 	if err := initializeCSINode(host); err != nil {
-		return fmt.Errorf("XYZ failed to initialize CSINodeInfo: %v", err)
+		return fmt.Errorf("failed to initialize CSINodeInfo: %v", err)
 	}
 
 	return nil
@@ -263,32 +263,6 @@ func initializeCSINode(host volume.VolumeHost) error {
 		klog.Warning("Skipping CSINodeInfo initialization, kubelet running in standalone mode")
 		return nil
 	}
-
-	// go func() {
-	// 	klog.Info("XYZ waiting for ws connection")
-	// 	<-time.After(time.Second * 10)
-	// 	// wait for websocket connection to be initialized
-	// 	klog.Info("XYZ csi_plugin creating csinode")
-	// 	csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{
-	// 		ObjectMeta: meta.ObjectMeta{
-	// 			Name: "something-test",
-	// 		},
-	// 		Spec: storagev1.CSINodeSpec{
-	// 			Drivers: []storagev1.CSINodeDriver{
-	// 				{
-	// 					Name:   "csi-example",
-	// 					NodeID: "something-test",
-	// 					TopologyKeys: []string{
-	// 						"kubernetes.io/hostname",
-	// 						"topology.kubernetes.io/zone",
-	// 						"topology.kubernetes.io/region",
-	// 					},
-	// 				},
-	// 			},
-	// 		},
-	// 	}, meta.CreateOptions{})
-	// 	klog.Errorf("XYZ csi_plugin created csinode: %v / %v", csinode, err)
-	// }()
 
 	kvh.SetKubeletError(errors.New("CSINodeInfo is not yet initialized"))
 
@@ -680,7 +654,7 @@ func (p *csiPlugin) getPublishContext(client clientset.Interface, handle, driver
 	// search for attachment by VolumeAttachment.Spec.Source.PersistentVolumeName
 	attachment, err := client.StorageV1().VolumeAttachments().Get(context.Background(), attachID, meta.GetOptions{})
 	if err != nil {
-		return nil, err // This err already has enough context ("VolumeAttachment xyz not found")
+		return nil, err // This err already has enough context ("VolumeAttachment not found")
 	}
 
 	if attachment == nil {
