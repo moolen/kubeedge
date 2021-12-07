@@ -434,7 +434,7 @@ func (nim *nodeInfoManager) CreateCSINode() (*storagev1beta1.CSINode, error) {
 		return nil, fmt.Errorf("error getting CSI client")
 	}
 
-	klog.Infof("try createCSINode fetching node=%s", nim.nodeName)
+	klog.Infof("try createCSINode fetching node=%s with client %#v", nim.nodeName, csiKubeClient)
 	node, err := kubeClient.CoreV1().Nodes().Get(context.Background(), string(nim.nodeName), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
