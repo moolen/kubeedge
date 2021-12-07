@@ -130,21 +130,18 @@ func (mh *MessageHandle) HandleServer(container *mux.MessageContainer, writer mu
 
 	// handle the response from edge
 	if VolumeRegExp.MatchString(container.Message.GetResource()) {
-		klog.Infof("volume resource match / return: id=%s resource=%s", container.Message.GetID(), container.Message.GetResource())
 		beehiveContext.SendResp(*container.Message)
 		return
 	}
 
 	// handle the ack message from edge
 	if container.Message.Router.Operation == beehiveModel.ResponseOperation {
-		klog.Infof("response/ackChan id=%s parent=%s", container.Message.GetID(), container.Message.Header.ParentID)
 		if ackChan, ok := mh.MessageAcks.Load(container.Message.Header.ParentID); ok {
 			close(ackChan.(chan struct{}))
 			mh.MessageAcks.Delete(container.Message.Header.ParentID)
 		}
 		return
 	} else if container.Message.GetOperation() == beehiveModel.UploadOperation && container.Message.GetGroup() == modules.UserGroup {
-		klog.Infof("upload user action id=%s res=%s", container.Message.GetID(), container.Message.Router.Resource)
 		container.Message.Router.Resource = fmt.Sprintf("node/%s/%s", nodeID, container.Message.Router.Resource)
 		beehiveContext.Send(modules.RouterModuleName, *container.Message)
 	} else {
@@ -264,7 +261,6 @@ func constructConnectMessage(info *model.HubInfo, isConnected bool) *beehiveMode
 
 func (mh *MessageHandle) PubToController(info *model.HubInfo, msg *beehiveModel.Message) error {
 	msg.SetResourceOperation(fmt.Sprintf("node/%s/%s", info.NodeID, msg.GetResource()), msg.GetOperation())
-	klog.Infof("PubToController: isFromEdge=%t id=%s", model.IsFromEdge(msg), msg.GetID())
 	if model.IsFromEdge(msg) {
 		err := mh.MessageQueue.Publish(msg)
 		if err != nil {

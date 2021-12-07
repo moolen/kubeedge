@@ -92,7 +92,6 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		return nil, err
 	}
 
-	klog.V(4).Info("updating state store")
 	err = cs.store.Update(res.Volume.VolumeId, edgeNode)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "unable to update state")

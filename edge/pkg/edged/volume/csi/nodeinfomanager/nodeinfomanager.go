@@ -410,7 +410,6 @@ func (nim *nodeInfoManager) InitializeCSINodeWithAnnotation() error {
 }
 
 func (nim *nodeInfoManager) tryInitializeCSINodeWithAnnotation(csiKubeClient clientset.Interface) error {
-	klog.Infof("try initialize CSINodeWithAnnotation")
 	nodeInfo, err := csiKubeClient.StorageV1().CSINodes().Get(context.Background(), string(nim.nodeName), metav1.GetOptions{})
 	if nodeInfo == nil || errors.IsNotFound(err) {
 		// CreateCSINode will set the annotation
@@ -430,7 +429,6 @@ func (nim *nodeInfoManager) tryInitializeCSINodeWithAnnotation(csiKubeClient cli
 }
 
 func (nim *nodeInfoManager) CreateCSINode() (*storage.CSINode, error) {
-	klog.Infof("try createCSINode node=%s", nim.nodeName)
 	kubeClient := nim.volumeHost.GetKubeClient()
 	if kubeClient == nil {
 		return nil, fmt.Errorf("error getting kube client")
@@ -441,13 +439,11 @@ func (nim *nodeInfoManager) CreateCSINode() (*storage.CSINode, error) {
 		return nil, fmt.Errorf("error getting CSI client")
 	}
 
-	klog.Infof("try createCSINode fetching node=%s with client %#v", nim.nodeName, csiKubeClient)
 	node, err := kubeClient.CoreV1().Nodes().Get(context.Background(), string(nim.nodeName), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	klog.Infof("try createCSINode got node=%#v", node)
 	nodeInfo := &storage.CSINode{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: string(nim.nodeName),
@@ -466,7 +462,6 @@ func (nim *nodeInfoManager) CreateCSINode() (*storage.CSINode, error) {
 	}
 
 	setMigrationAnnotation(nim.migratedPlugins, nodeInfo)
-	klog.Infof("try createCSINode create csinode=%#v", nodeInfo)
 
 	return csiKubeClient.StorageV1().CSINodes().Create(context.Background(), nodeInfo, metav1.CreateOptions{})
 }
