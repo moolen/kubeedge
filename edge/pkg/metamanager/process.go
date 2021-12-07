@@ -111,15 +111,16 @@ func resourceUnchanged(resType string, resKey string, content []byte) bool {
 }
 
 func (m *metaManager) processInsert(message model.Message) {
+	resKey, resType, _ := parseResource(message.GetResource())
 	content, err := message.GetContentData()
 	if err != nil {
 		klog.Errorf("get insert message content data failed, %s", msgDebugInfo(&message))
 		feedbackError(err, "Error to get insert message content data", message)
 		return
 	}
+	klog.Infof("XYZ processInsert: %s", content)
 
 	imitator.DefaultV2Client.Inject(message)
-	resKey, resType, _ := parseResource(message.GetResource())
 
 	meta := &dao.Meta{
 		Key:   resKey,
@@ -132,11 +133,18 @@ func (m *metaManager) processInsert(message model.Message) {
 		return
 	}
 
-	// Notify edged
-	sendToEdged(&message, false)
-
-	resp := message.NewRespByMessage(&message, OK)
-	sendToCloud(resp)
+	// CSINode objects must be forwarded to upstream
+	// everything else is sent to edged
+	switch resType {
+	case model.ResourceTypeCSINode:
+		sendToCloud(&message)
+		resp := message.NewRespByMessage(&message, OK)
+		sendToEdged(resp, message.IsSync())
+	default:
+		sendToEdged(&message, false)
+		resp := message.NewRespByMessage(&message, OK)
+		sendToCloud(resp)
+	}
 }
 
 func (m *metaManager) processUpdate(message model.Message) {
