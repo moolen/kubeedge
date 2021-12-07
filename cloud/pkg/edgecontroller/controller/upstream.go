@@ -232,7 +232,9 @@ func (uc *UpstreamController) dispatchMessage() {
 			case model.UpdateOperation:
 				uc.updateCSINodeChan <- msg
 			case model.InsertOperation:
+				klog.Infof("XYZ inserting insert op id=%s", msg.GetID())
 				uc.updateCSINodeChan <- msg
+				klog.Infof("XYZ inserted insert op id=%s", msg.GetID())
 			}
 		case model.ResourceTypePod:
 			if msg.GetOperation() == model.DeleteOperation {
@@ -756,6 +758,7 @@ func (uc *UpstreamController) queryCSINode() {
 }
 
 func (uc *UpstreamController) updateCSINode() {
+	klog.Infof("starting updateCSINode worker")
 	for {
 		select {
 		case <-beehiveContext.Done():
