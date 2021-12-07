@@ -617,7 +617,9 @@ func queryInner(uc *UpstreamController, msg model.Message, queryType string) {
 		object, err := kubeClientGet(uc, namespace, name, queryType, msg)
 		if errors.IsNotFound(err) {
 			klog.Warningf("message: %s process failure, resource not found, namespace: %s, name: %s", msg.GetID(), namespace, name)
-			_ = uc.messageLayer.Response(*model.NewErrorMessage(&msg, err.Error()))
+			errMsg := model.NewErrorMessage(&msg, err.Error())
+			errMsg.Header.ParentID = msg.GetID()
+			_ = uc.messageLayer.Response(*errMsg)
 			return
 		}
 		if err != nil {
