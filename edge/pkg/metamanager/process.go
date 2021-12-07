@@ -244,7 +244,7 @@ func (m *metaManager) processQuery(message model.Message) {
 	var err error
 	if requireRemoteQuery(resType) && isConnected() {
 		metas, err = dao.QueryMeta("key", resKey)
-		if err != nil || len(*metas) == 0 || resType == model.ResourceTypeNode || resType == constants.ResourceTypeVolumeAttachment {
+		if err != nil || len(*metas) == 0 || resType == model.ResourceTypeNode || resType == constants.ResourceTypeVolumeAttachment || resType == constants.ResourceTypePersistentVolume || resType == constants.ResourceTypePersistentVolumeClaim {
 			m.processRemoteQuery(message)
 		} else {
 			resp := message.NewRespByMessage(&message, *metas)
