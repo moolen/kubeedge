@@ -402,6 +402,7 @@ func (nim *nodeInfoManager) InitializeCSINodeWithAnnotation() error {
 }
 
 func (nim *nodeInfoManager) tryInitializeCSINodeWithAnnotation(csiKubeClient clientset.Interface) error {
+	klog.Infof("try initialize CSINodeWithAnnotation")
 	nodeInfo, err := csiKubeClient.StorageV1beta1().CSINodes().Get(context.Background(), string(nim.nodeName), metav1.GetOptions{})
 	if nodeInfo == nil || errors.IsNotFound(err) {
 		// CreateCSINode will set the annotation
@@ -421,6 +422,7 @@ func (nim *nodeInfoManager) tryInitializeCSINodeWithAnnotation(csiKubeClient cli
 }
 
 func (nim *nodeInfoManager) CreateCSINode() (*storagev1beta1.CSINode, error) {
+	klog.Infof("try createCSINode node=%s", nim.nodeName)
 	kubeClient := nim.volumeHost.GetKubeClient()
 	if kubeClient == nil {
 		return nil, fmt.Errorf("error getting kube client")

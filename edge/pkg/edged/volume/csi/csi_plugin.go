@@ -36,7 +36,6 @@ import (
 	"time"
 
 	api "k8s.io/api/core/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -265,31 +264,31 @@ func initializeCSINode(host volume.VolumeHost) error {
 		return nil
 	}
 
-	go func() {
-		klog.Info("XYZ waiting for ws connection")
-		<-time.After(time.Second * 10)
-		// wait for websocket connection to be initialized
-		klog.Info("XYZ csi_plugin creating csinode")
-		csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{
-			ObjectMeta: meta.ObjectMeta{
-				Name: "something-test",
-			},
-			Spec: storagev1.CSINodeSpec{
-				Drivers: []storagev1.CSINodeDriver{
-					{
-						Name:   "csi-example",
-						NodeID: "something-test",
-						TopologyKeys: []string{
-							"kubernetes.io/hostname",
-							"topology.kubernetes.io/zone",
-							"topology.kubernetes.io/region",
-						},
-					},
-				},
-			},
-		}, meta.CreateOptions{})
-		klog.Errorf("XYZ csi_plugin created csinode: %v / %v", csinode, err)
-	}()
+	// go func() {
+	// 	klog.Info("XYZ waiting for ws connection")
+	// 	<-time.After(time.Second * 10)
+	// 	// wait for websocket connection to be initialized
+	// 	klog.Info("XYZ csi_plugin creating csinode")
+	// 	csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{
+	// 		ObjectMeta: meta.ObjectMeta{
+	// 			Name: "something-test",
+	// 		},
+	// 		Spec: storagev1.CSINodeSpec{
+	// 			Drivers: []storagev1.CSINodeDriver{
+	// 				{
+	// 					Name:   "csi-example",
+	// 					NodeID: "something-test",
+	// 					TopologyKeys: []string{
+	// 						"kubernetes.io/hostname",
+	// 						"topology.kubernetes.io/zone",
+	// 						"topology.kubernetes.io/region",
+	// 					},
+	// 				},
+	// 			},
+	// 		},
+	// 	}, meta.CreateOptions{})
+	// 	klog.Errorf("XYZ csi_plugin created csinode: %v / %v", csinode, err)
+	// }()
 
 	kvh.SetKubeletError(errors.New("CSINodeInfo is not yet initialized"))
 
