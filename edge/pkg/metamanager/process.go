@@ -87,7 +87,8 @@ func requireRemoteQuery(resType string) bool {
 		resType == constants.ResourceTypePersistentVolumeClaim ||
 		resType == constants.ResourceTypeVolumeAttachment ||
 		resType == model.ResourceTypeNode ||
-		resType == model.ResourceTypeServiceAccountToken
+		resType == model.ResourceTypeServiceAccountToken ||
+		resType == model.ResourceTypeCSINode
 }
 
 func isConnected() bool {
@@ -244,7 +245,7 @@ func (m *metaManager) processQuery(message model.Message) {
 	var err error
 	if requireRemoteQuery(resType) && isConnected() {
 		metas, err = dao.QueryMeta("key", resKey)
-		if err != nil || len(*metas) == 0 || resType == model.ResourceTypeNode || resType == constants.ResourceTypeVolumeAttachment || resType == constants.ResourceTypePersistentVolume || resType == constants.ResourceTypePersistentVolumeClaim {
+		if err != nil || len(*metas) == 0 || resType == model.ResourceTypeNode || resType == constants.ResourceTypeVolumeAttachment || resType == constants.ResourceTypePersistentVolume || resType == constants.ResourceTypePersistentVolumeClaim || resType == model.ResourceTypeCSINode {
 			m.processRemoteQuery(message)
 		} else {
 			resp := message.NewRespByMessage(&message, *metas)

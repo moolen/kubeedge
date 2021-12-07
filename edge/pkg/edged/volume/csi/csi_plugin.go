@@ -36,6 +36,7 @@ import (
 	"time"
 
 	api "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -241,15 +242,12 @@ func (p *csiPlugin) Init(host volume.VolumeHost) error {
 	// Initializing the label management channels
 	nim = nodeinfomanager.NewNodeInfoManager(host.GetNodeName(), host, migratedPlugins)
 
-	// TODO: Evaluate the feature releated to csi
-	/*if utilfeature.DefaultFeatureGate.Enabled(features.CSINodeInfo) &&
-		utilfeature.DefaultFeatureGate.Enabled(features.CSIMigration) {
-		// This function prevents Kubelet from posting Ready status until CSINodeInfo
-		// is both installed and initialized
-		if err := initializeCSINode(host); err != nil {
-			return fmt.Errorf("failed to initialize CSINodeInfo: %v", err)
-		}
-	}*/
+	// This function prevents Kubelet from posting Ready status until CSINodeInfo
+	// is both installed and initialized
+	klog.Infof("initializing CSINode")
+	if err := initializeCSINode(host); err != nil {
+		return fmt.Errorf("XYZ failed to initialize CSINodeInfo: %v", err)
+	}
 
 	return nil
 }
@@ -266,6 +264,9 @@ func initializeCSINode(host volume.VolumeHost) error {
 		klog.Warning("Skipping CSINodeInfo initialization, kubelet running in standalone mode")
 		return nil
 	}
+
+	csinode, err := kubeClient.StorageV1().CSINodes().Create(context.Background(), &storagev1.CSINode{}, meta.CreateOptions{})
+	klog.Errorf("XYZ csi_plugin created csinode: %v / %v", csinode, err)
 
 	kvh.SetKubeletError(errors.New("CSINodeInfo is not yet initialized"))
 
