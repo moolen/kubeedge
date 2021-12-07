@@ -110,6 +110,7 @@ func NewNodeInfoManager(
 // If multiple calls to InstallCSIDriver() are made in parallel, some calls might receive Node or
 // CSINode update conflicts, which causes the function to retry the corresponding update.
 func (nim *nodeInfoManager) InstallCSIDriver(driverName string, driverNodeID string, maxAttachLimit int64, topology map[string]string) error {
+	klog.Infof("CSINode installing csi driver")
 	if driverNodeID == "" {
 		return fmt.Errorf("error adding CSI driver node info: driverNodeID must not be empty")
 	}
@@ -122,6 +123,12 @@ func (nim *nodeInfoManager) InstallCSIDriver(driverName string, driverNodeID str
 	if err != nil {
 		return fmt.Errorf("error updating Node object with CSI driver node info: %v", err)
 	}
+
+	err = nim.updateCSINode(driverName, driverNodeID, topology)
+	if err != nil {
+		return fmt.Errorf("error updating CSINode object with CSI driver node info: %v", err)
+	}
+
 	return nil
 }
 
