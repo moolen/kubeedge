@@ -42,12 +42,22 @@ func (c *csinodes) Create(cm *storagev1.CSINode) (*storagev1.CSINode, error) {
 	klog.Infof("XYZ: csinode:create")
 	resource := fmt.Sprintf("%s/%s/%s", c.namespace, model.ResourceTypeCSINode, cm.Name)
 	nodeMsg := message.BuildMsg(modules.MetaGroup, "", modules.EdgedModuleName, resource, model.InsertOperation, cm)
-	_, err := c.send.SendSync(nodeMsg)
+	resMsg, err := c.send.SendSync(nodeMsg)
 	if err != nil {
 		return nil, fmt.Errorf("create csinode failed, err: %v", err)
 	}
+
+	content, err := resMsg.GetContentData()
+	if err != nil {
+		return nil, fmt.Errorf("parse message to csinode failed, err: %v", err)
+	}
+	var node *storagev1.CSINode
+	err = json.Unmarshal(content, &node)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal message to csinode failed, err: %v", err)
+	}
 	klog.Infof("XYZ: created csinode")
-	return nil, nil
+	return node, nil
 }
 
 func (c *csinodes) Update(cm *storagev1.CSINode) error {

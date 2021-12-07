@@ -819,7 +819,7 @@ func (uc *UpstreamController) updateCSINode() {
 				}
 				resMsg := model.NewMessage(msg.GetID()).
 					SetResourceVersion(node.ResourceVersion).
-					FillBody(common.MessageSuccessfulContent).
+					FillBody(node).
 					BuildRouter(modules.EdgeControllerModuleName, constants.GroupResource, resource, model.ResponseOperation)
 				if err = uc.messageLayer.Response(*resMsg); err != nil {
 					klog.Warningf("XYZ Message: %s process failure, response failed with error: %s", msg.GetID(), err)
@@ -833,7 +833,7 @@ func (uc *UpstreamController) updateCSINode() {
 				}
 				resMsg := model.NewMessage(msg.GetID()).
 					SetResourceVersion(node.ResourceVersion).
-					FillBody(common.MessageSuccessfulContent).
+					FillBody(node).
 					BuildRouter(modules.EdgeControllerModuleName, constants.GroupResource, resource, model.ResponseOperation)
 				if err = uc.messageLayer.Response(*resMsg); err != nil {
 					klog.Warningf("XYZ Message: %s process failure, response failed with error: %s", msg.GetID(), err)

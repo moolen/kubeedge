@@ -76,6 +76,8 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 	defer cs.inFlight.Delete(volName)
 
+	// downstream driver defines it's own, e.g.: https://github.com/kubernetes-csi/csi-driver-host-path/blob/15b660f0d614498d765352327c6ec09d2fe83705/pkg/hostpath/nodeserver.go#L350-L352
+	// accessibility requirements
 	edgeNode, err := pickEdgeNode(req.GetAccessibilityRequirements())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "Can not pick edge node based on accessibility requirements")
