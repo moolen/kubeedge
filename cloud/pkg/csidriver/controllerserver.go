@@ -41,7 +41,7 @@ type KubeEdgeSendFn func(req interface{}, nodeID, volumeID, csiOp string, res in
 
 const (
 	volumeContextNodeIDKey = "topology.csidriver.kubeedge/node-id"
-	hostnameTopologyKey    = "kubernetes.io/hostname"
+	hostpathTopologyKey    = "topology.hostpath.csi/node"
 )
 
 // newControllerServer creates controller server
@@ -121,18 +121,31 @@ func pickEdgeNode(requirement *csi.TopologyRequirement) (string, error) {
 		return "", fmt.Errorf("missing topology requirements")
 	}
 	for _, topology := range requirement.GetPreferred() {
-		zone, exists := topology.GetSegments()[hostnameTopologyKey]
+		node, exists := findTopoKey(topology.GetSegments())
 		if exists {
-			return zone, nil
+			return node, nil
 		}
 	}
 	for _, topology := range requirement.GetRequisite() {
-		zone, exists := topology.GetSegments()[hostnameTopologyKey]
+		node, exists := findTopoKey(topology.GetSegments())
 		if exists {
-			return zone, nil
+			return node, nil
 		}
 	}
 	return "", fmt.Errorf("could not find matching node")
+}
+
+// we don't know which CSI driver is used and what topology keys
+// are relevant for a particular driver. For now we try out well-known topology keys.
+// only hostpath driver is currently supported
+// FIXME(mj): broadcast a NodeGetInfo call to all nodes so we know what topologies are used by downstream csi drivers
+//            see: https://github.com/kubernetes-csi/csi-driver-host-path/blob/2ac5a8c8f8e9ceab885d05d7c171f6b428c48416/pkg/hostpath/nodeserver.go#L343-L352
+func findTopoKey(segments map[string]string) (string, bool) {
+	node, exists := segments[hostpathTopologyKey]
+	if exists {
+		return node, true
+	}
+	return "", false
 }
 
 // DeleteVolume issues delete volume func
