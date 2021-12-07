@@ -278,7 +278,7 @@ func initializeCSINode(host volume.VolumeHost) error {
 				Drivers: []storagev1.CSINodeDriver{
 					{
 						Name:   "csi-example",
-						NodeID: host.GetHostName(),
+						NodeID: "something-test",
 						TopologyKeys: []string{
 							"kubernetes.io/hostname",
 							"topology.kubernetes.io/zone",
