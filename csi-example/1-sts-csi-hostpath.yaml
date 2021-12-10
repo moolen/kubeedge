@@ -67,7 +67,7 @@ spec:
           - mountPath: /csi
             name: csi-socket-dir
         - name: csi-driver
-          image: docker.io/moolen/kubeedge-csidriver:csi-fix-topo
+          image: docker.io/moolen/kubeedge-csidriver:csi-fix-topo-key
           imagePullPolicy: Always
           args:
             - "--v=10"
