@@ -35,17 +35,17 @@ type controllerServer struct {
 	kubeEdgeEndpoint string
 	inFlight         *inFlight
 	store            *state.Store
+	topologyKey      string
 }
 
 type KubeEdgeSendFn func(req interface{}, nodeID, volumeID, csiOp string, res interface{}, kubeEdgeEndpoint string) error
 
 const (
 	volumeContextNodeIDKey = "topology.csidriver.kubeedge/node-id"
-	hostpathTopologyKey    = "topology.hostpath.csi/node"
 )
 
 // newControllerServer creates controller server
-func newControllerServer(kubeEdgeEndpoint string, store *state.Store) *controllerServer {
+func newControllerServer(kubeEdgeEndpoint string, store *state.Store, topologyKey string) *controllerServer {
 	return &controllerServer{
 		caps: getControllerServiceCapabilities(
 			[]csi.ControllerServiceCapability_RPC_Type{
@@ -54,6 +54,7 @@ func newControllerServer(kubeEdgeEndpoint string, store *state.Store) *controlle
 			}),
 		sendFn:           sendToKubeEdge,
 		kubeEdgeEndpoint: kubeEdgeEndpoint,
+		topologyKey:      topologyKey,
 		inFlight:         newInFlight(),
 		store:            store,
 	}
@@ -78,7 +79,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	// downstream driver defines it's own, e.g.: https://github.com/kubernetes-csi/csi-driver-host-path/blob/15b660f0d614498d765352327c6ec09d2fe83705/pkg/hostpath/nodeserver.go#L350-L352
 	// accessibility requirements
-	edgeNode, err := pickEdgeNode(req.GetAccessibilityRequirements())
+	edgeNode, err := pickEdgeNode(req.GetAccessibilityRequirements(), cs.topologyKey)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "Can not pick edge node based on accessibility requirements")
 	}
@@ -114,19 +115,19 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	return createVolumeResponse, nil
 }
 
-func pickEdgeNode(requirement *csi.TopologyRequirement) (string, error) {
+func pickEdgeNode(requirement *csi.TopologyRequirement, topoKey string) (string, error) {
 	klog.Info("topology requirements: %#v", requirement)
 	if requirement == nil {
 		return "", fmt.Errorf("missing topology requirements")
 	}
 	for _, topology := range requirement.GetPreferred() {
-		node, exists := findTopoKey(topology.GetSegments())
+		node, exists := findTopoKey(topology.GetSegments(), topoKey)
 		if exists {
 			return node, nil
 		}
 	}
 	for _, topology := range requirement.GetRequisite() {
-		node, exists := findTopoKey(topology.GetSegments())
+		node, exists := findTopoKey(topology.GetSegments(), topoKey)
 		if exists {
 			return node, nil
 		}
@@ -134,13 +135,8 @@ func pickEdgeNode(requirement *csi.TopologyRequirement) (string, error) {
 	return "", fmt.Errorf("could not find matching node")
 }
 
-// we don't know which CSI driver is used and what topology keys
-// are relevant for a particular driver. For now we try out well-known topology keys.
-// only hostpath driver is currently supported
-// FIXME(mj): broadcast a NodeGetInfo call to all nodes so we know what topologies are used by downstream csi drivers
-//            see: https://github.com/kubernetes-csi/csi-driver-host-path/blob/2ac5a8c8f8e9ceab885d05d7c171f6b428c48416/pkg/hostpath/nodeserver.go#L343-L352
-func findTopoKey(segments map[string]string) (string, bool) {
-	node, exists := segments[hostpathTopologyKey]
+func findTopoKey(segments map[string]string, topoKey string) (string, bool) {
+	node, exists := segments[topoKey]
 	if exists {
 		return node, true
 	}
@@ -199,13 +195,10 @@ func (cs *controllerServer) ControllerUnpublishVolume(ctx context.Context, req *
 	if len(volumeID) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "ControllerUnpublishVolume Volume ID must be provided")
 	}
-	edgeName, err := cs.store.Get(volumeID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "unable to get edge name")
-	}
+	edgeName := req.GetNodeId()
 	klog.V(4).Infof("unpublish volume %s on %s", volumeID, edgeName)
 	res := &csi.ControllerUnpublishVolumeResponse{}
-	err = cs.sendFn(req, edgeName, volumeID, constants.CSIOperationTypeControllerUnpublishVolume, res, cs.kubeEdgeEndpoint)
+	err := cs.sendFn(req, edgeName, volumeID, constants.CSIOperationTypeControllerUnpublishVolume, res, cs.kubeEdgeEndpoint)
 	if err != nil {
 		klog.Errorf("send to kubeedge failed with error: %v", err)
 		return nil, err

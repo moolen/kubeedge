@@ -155,6 +155,10 @@ func (h *RegistrationHandler) RegisterPlugin(pluginName string, endpoint string,
 		return err
 	}
 
+	// add nodeid to topology info
+	// this allows csidriver to forward CreateVolume requests to this specific node
+	accessibleTopology["csi.kubeedge.io/nodeid"] = driverNodeID
+
 	err = nim.InstallCSIDriver(pluginName, driverNodeID, maxVolumePerNode, accessibleTopology)
 	if err != nil {
 		if unregErr := unregisterDriver(pluginName); unregErr != nil {

@@ -49,6 +49,9 @@ func NewCSIDriver(opts *options.CSIDriverOptions) (*CSIDriver, error) {
 	if opts.StatePath == "" {
 		return nil, fmt.Errorf("no statepath provided")
 	}
+	if opts.TopologyKey == "" {
+		return nil, fmt.Errorf("no topology-key provided")
+	}
 	store, err := state.New(opts.StatePath)
 	if err != nil {
 		return nil, err
@@ -64,7 +67,7 @@ func (cd *CSIDriver) Run() {
 
 	// Create GRPC servers
 	cd.ids = newIdentityServer(cd.DriverName, cd.Version)
-	cd.cs = newControllerServer(cd.KubeEdgeEndpoint, cd.store)
+	cd.cs = newControllerServer(cd.KubeEdgeEndpoint, cd.store, cd.TopologyKey)
 
 	s := newNonBlockingGRPCServer()
 	s.Start(cd.Endpoint, cd.ids, cd.cs, nil)
